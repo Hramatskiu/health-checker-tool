@@ -188,22 +188,39 @@ public abstract class CommonClusterSnapshotFacadeImpl implements IClusterSnapsho
         ClusterServiceEntity clusterServiceEntity = clusterServiceDao.findByClusterIdAndServiceType(clusterEntity.getId(), serviceStatus.getType());
         ClusterServiceSnapshotEntity clusterServiceSnapshotEntity = svTransfererManager.<ServiceStatus, ClusterServiceSnapshotEntity>getTransferer(ServiceStatus.class, ClusterServiceSnapshotEntity.class)
                 .transfer((ServiceStatus) serviceStatus, ClusterServiceSnapshotEntity.class);
-        clusterServiceSnapshotEntity.setClusterSnapshotEntity(clusterSnapshotEntity);
+        clusterServiceSnapshotEntity = mergeEntityServiceStatusHolder(clusterServiceSnapshotDao.findByClusterSnapshotIdServiceId(clusterSnapshotEntity.getId(), serviceStatus.getType()),
+                clusterServiceSnapshotEntity, clusterSnapshotEntity);
+
         if (clusterServiceEntity == null) {
-            //todo: revisit here, recreate from null, not receiving from snapshot
             clusterServiceEntity = clusterServiceSnapshotEntity.getClusterServiceEntity();
             clusterServiceEntity.setClusterEntity(clusterEntity);
             clusterServiceDao.save(clusterServiceEntity);
         } else {
             clusterServiceSnapshotEntity.setClusterServiceEntity(clusterServiceEntity);
         }
+        updateLogDirectory(serviceStatus, clusterServiceEntity);
+        clusterServiceSnapshotDao.save(clusterServiceSnapshotEntity);
+        return clusterServiceSnapshotEntity;
+    }
+
+    private void updateLogDirectory(ServiceStatusHolder serviceStatus, ClusterServiceEntity clusterServiceEntity) {
         if (!StringUtils.isEmpty(serviceStatus.getLogDirectory())) {
             clusterServiceEntity.setLogPath(serviceStatus.getLogDirectory());
             clusterServiceEntity.setClusterNode(serviceStatus.getClusterNode());
             clusterServiceDao.save(clusterServiceEntity);
         }
-        clusterServiceSnapshotDao.save(clusterServiceSnapshotEntity);
-        return clusterServiceSnapshotEntity;
+    }
+
+    private ClusterServiceSnapshotEntity mergeEntityServiceStatusHolder(ClusterServiceSnapshotEntity db, ClusterServiceSnapshotEntity check, ClusterSnapshotEntity clusterSnapshotEntity) {
+        if (db == null) {
+            check.setClusterSnapshotEntity(clusterSnapshotEntity);
+            return check;
+        }
+        if (check.getJobResults() != null && !check.getJobResults().isEmpty()) {
+            //full check was done, mandatory
+            db.setHealthStatus(check.getHealthStatus());
+        }
+        return db;
     }
 
     private boolean isTokenNotEmpty(ClusterAccumulatorToken clusterAccumulatorToken) {

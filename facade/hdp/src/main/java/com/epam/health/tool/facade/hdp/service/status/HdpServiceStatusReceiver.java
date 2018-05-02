@@ -58,6 +58,10 @@ public class HdpServiceStatusReceiver extends CommonServiceStatusReceiver {
 
     private ServiceStatusHolder readFromJson(String json) throws CommonUtilException {
         HdpServiceStatusDTO hdpServiceStatusDTO = CommonJsonHandler.get().getTypedValueFromInnerField(json, HdpServiceStatusDTO.class, "ServiceInfo");
+        if (hdpServiceStatusDTO == null) {
+            //impala doesn't exist for hdp
+            return null;
+        }
         hdpServiceStatusDTO.setHealthStatus(ServiceStateEnumMapper.get().mapStringStateToEnum(hdpServiceStatusDTO.getHealthStatus()).toString());
         return svTransfererManager.<HdpServiceStatusDTO, ServiceStatus>getTransferer(HdpServiceStatusDTO.class, ServiceStatus.class)
                 .transfer(hdpServiceStatusDTO, ServiceStatus.class);
