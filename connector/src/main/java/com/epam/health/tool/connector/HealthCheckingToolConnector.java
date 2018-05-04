@@ -4,15 +4,22 @@ import com.epam.util.common.CheckingParamsUtil;
 import com.epam.util.common.CommonUtilException;
 import com.epam.util.common.json.CommonJsonHandler;
 import com.epam.util.http.HttpRequestExecutor;
+import org.apache.log4j.Logger;
 
 public class HealthCheckingToolConnector {
+    private static final Logger logger = Logger.getLogger(HealthCheckingToolConnector.class);
     public static void main( String... args ) {
         if ( isParamsValid( args ) ) {
             try {
+                String hostWithPort = getHostWithPort(args);
+                String urlGetClusterName = "http://" + hostWithPort + "/cluster/search?".concat(createRequestParamString(buildSearchParamFromArguments(args)));
+                //logger.error("url:" + urlGetClusterName);
                 String clusterName = HttpRequestExecutor.get()
-                        .executeUrlRequest( "http://10.6.117.32:8888/cluster/search?".concat( createRequestParamString( buildSearchParamFromArguments( args ) ) ) );
+                        .executeUrlRequest(urlGetClusterName);
                 if ( !CheckingParamsUtil.isParamsNullOrEmpty( clusterName ) ) {
-                    String jsonResult = HttpRequestExecutor.get().executeUrlRequest( "http://10.6.117.32:8888/check/cluster/".concat( clusterName ) );
+                    String urlGetClusterStatus = "http://" + hostWithPort + "/check/cluster/".concat(clusterName);
+                    //logger.error("url cluster health: " + urlGetClusterStatus);
+                    String jsonResult = HttpRequestExecutor.get().executeUrlRequest(urlGetClusterStatus);
                     HealthCheckResult healthCheckResult = CommonJsonHandler.get()
                             .getTypedValue( jsonResult, HealthCheckResult.class );
                     if ( healthCheckResult != null ) {
@@ -35,7 +42,7 @@ public class HealthCheckingToolConnector {
     }
 
     private static boolean isParamsValid( String... args ) {
-        return !CheckingParamsUtil.isParamsNullOrEmpty( args ) && args.length > 2;
+        return !CheckingParamsUtil.isParamsNullOrEmpty( args ) && args.length > 3;
     }
 
     private static void reportError( String message ) {
@@ -43,7 +50,11 @@ public class HealthCheckingToolConnector {
     }
 
     private static ClusterSearchParam buildSearchParamFromArguments( String... args ) {
-        return ClusterSearchParam.ClusterSearchParamBuilder.get().withNode( args[0] ).withShimName( args[1] ).withSecure( args[2] ).build();
+        return ClusterSearchParam.ClusterSearchParamBuilder.get().withNode( args[1] ).withShimName( args[2] ).withSecure( args[3] ).build();
+    }
+
+    private static String getHostWithPort(String... args) {
+        return args[0];
     }
 
     private static String createRequestParamString( ClusterSearchParam clusterSearchParam ) {

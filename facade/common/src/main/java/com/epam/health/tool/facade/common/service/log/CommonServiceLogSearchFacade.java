@@ -1,14 +1,22 @@
 package com.epam.health.tool.facade.common.service.log;
 
+import com.epam.facade.model.accumulator.HealthCheckResultsAccumulator;
 import com.epam.facade.model.accumulator.LogLocation;
+import com.epam.facade.model.exception.ImplementationNotResolvedException;
+import com.epam.facade.model.projection.ServiceStatusHolder;
 import com.epam.health.tool.authentication.ssh.SshAuthenticationClient;
 import com.epam.health.tool.dao.cluster.ClusterDao;
+import com.epam.health.tool.dao.cluster.ClusterServiceDao;
 import com.epam.health.tool.facade.cluster.receiver.IRunningClusterParamReceiver;
+import com.epam.health.tool.facade.common.service.action.other.CommonOtherServicesHealthCheckAction;
 import com.epam.health.tool.facade.resolver.IFacadeImplResolver;
 import com.epam.health.tool.facade.service.log.IServiceLogSearchFacade;
 import com.epam.health.tool.facade.service.log.IServiceLogsSearcher;
+import com.epam.health.tool.model.ClusterEntity;
+import com.epam.health.tool.model.ClusterServiceEntity;
 import com.epam.health.tool.model.ServiceTypeEnum;
 import com.epam.util.common.StringUtils;
+import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
@@ -20,6 +28,7 @@ public abstract class CommonServiceLogSearchFacade implements IServiceLogSearchF
     public static final String OOZIE_LOG_PROPERTY = "oozie.log.dir";
     public static final String HDFS_LOG_PROPERTY = "hdfs.log.dir";
     public static final String SQOOP_LOG_PROPERTY = "sqoop.log.dir";
+    private final static Logger logger = Logger.getLogger( CommonServiceLogSearchFacade.class );
 
     @Autowired
     private SshAuthenticationClient sshAuthenticationClient;
@@ -27,6 +36,10 @@ public abstract class CommonServiceLogSearchFacade implements IServiceLogSearchF
     private ClusterDao clusterDao;
     @Autowired
     private IFacadeImplResolver<IRunningClusterParamReceiver> clusterParamReceiverIFacadeImplResolver;
+    @Autowired
+    private IFacadeImplResolver<IServiceLogSearchFacade> serviceLogSearchManagerImplResolver;
+    @Autowired
+    private ClusterServiceDao clusterServiceDao;
 
     @Override
     public LogLocation searchLogs(String clusterName, ServiceTypeEnum serviceType ) {
@@ -49,4 +62,26 @@ public abstract class CommonServiceLogSearchFacade implements IServiceLogSearchF
 
 
     protected abstract Map<ServiceTypeEnum, IServiceLogsSearcher> getLogSearchersMap();
+
+    public void addLogsPathToService(HealthCheckResultsAccumulator healthCheckResultsAccumulator, ServiceStatusHolder serviceStatus, ClusterEntity clusterEntity) {
+        try {
+            ClusterServiceEntity byClusterIdAndServiceType = clusterServiceDao.findByClusterIdAndServiceType(clusterEntity.getId(), serviceStatus.getType());
+            String logPath = null;
+            if (byClusterIdAndServiceType == null) {
+                logger.error("Can't find cluster service entity for cluster: " + clusterEntity.getClusterName() + " service: " + serviceStatus.getType());
+            } else {
+                logPath = byClusterIdAndServiceType.getLogPath();
+            }
+            if (healthCheckResultsAccumulator.isFullCheck()) {
+                LogLocation logLocation = serviceLogSearchManagerImplResolver.resolveFacadeImpl(clusterEntity.getClusterTypeEnum().name())
+                        .searchLogs(clusterEntity.getClusterName(), serviceStatus.getType());
+                String logDirectory = logLocation.getLogPath();
+                logger.info("Logs for service " + serviceStatus.getDisplayName() + logDirectory);
+                serviceStatus.setLogDirectory(logDirectory);
+                serviceStatus.setClusterNode(logLocation.getClusterNode());
+            }
+        } catch (ImplementationNotResolvedException e) {
+            logger.error(e.getMessage());
+        }
+    }
 }

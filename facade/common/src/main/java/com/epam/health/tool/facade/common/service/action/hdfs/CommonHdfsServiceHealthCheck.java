@@ -12,10 +12,12 @@ import com.epam.health.tool.facade.common.service.action.CommonSshHealthCheckAct
 import com.epam.health.tool.facade.common.service.action.yarn.CommonYarnServiceHealthCheckActionImpl;
 import com.epam.health.tool.facade.resolver.IFacadeImplResolver;
 import com.epam.health.tool.facade.resolver.action.HealthCheckAction;
+import com.epam.health.tool.facade.service.log.IServiceLogSearchFacade;
 import com.epam.health.tool.facade.service.status.IServiceStatusReceiver;
 import com.epam.health.tool.model.ClusterEntity;
 import com.epam.health.tool.model.ServiceStatusEnum;
 import com.epam.health.tool.model.ServiceTypeEnum;
+import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +34,9 @@ public class CommonHdfsServiceHealthCheck extends CommonSshHealthCheckAction {
     private List<IHdfsOperation> hdfsOperations;
     @Autowired
     private IFacadeImplResolver<IServiceStatusReceiver> serviceStatusReceiverIFacadeImplResolver;
+    @Autowired
+    private IFacadeImplResolver<IServiceLogSearchFacade> serviceLogSearchManagerImplResolver;
+    private final static Logger logger = Logger.getLogger( CommonYarnServiceHealthCheckActionImpl.class );
 
     @Override
     public void performHealthCheck(String clusterName, HealthCheckResultsAccumulator healthCheckResultsAccumulator) throws InvalidResponseException {
@@ -41,8 +46,20 @@ public class CommonHdfsServiceHealthCheck extends CommonSshHealthCheckAction {
             serviceStatus.setJobResults(performHdfsOperations(clusterEntity));
             serviceStatus.setHealthSummary(CommonYarnServiceHealthCheckActionImpl.mergeJobResultsWithRestStatus(serviceStatus.getHealthSummary(), getHdfsServiceStatus(serviceStatus)));
             healthCheckResultsAccumulator.addServiceStatus(serviceStatus);
+            addLogDirectory(clusterEntity, healthCheckResultsAccumulator, serviceStatus);
         } catch (ImplementationNotResolvedException e) {
             throw new InvalidResponseException("Can't find according implementation for vendor " + clusterEntity.getClusterTypeEnum(), e);
+        }
+    }
+
+    private void addLogDirectory(ClusterEntity clusterEntity, HealthCheckResultsAccumulator healthCheckResultsAccumulator, ServiceStatusHolder serviceStatus) {
+        String clusterType = clusterEntity.getClusterTypeEnum().name();
+        try {
+            serviceLogSearchManagerImplResolver.resolveFacadeImpl(clusterType).
+                    addLogsPathToService(healthCheckResultsAccumulator, serviceStatus, clusterEntity);
+        } catch (ImplementationNotResolvedException e) {
+            logger.error("can't find implementation for " + clusterType + " for log service", e);
+            throw new RuntimeException(e);
         }
     }
 

@@ -55,10 +55,7 @@ public class HealthCheckResultsAccumulator {
     }
 
     public void addServiceStatus(ServiceStatusHolder serviceStatus) throws InvalidResponseException {
-        if (serviceStatusList.stream().noneMatch(serviceStatusHolder -> serviceStatusHolder == serviceStatus)) {
-            getServiceHealthCheckResultIfExists(serviceStatus.getType()).ifPresent(serviceStatusHolder -> serviceStatusList.remove(serviceStatusHolder));
-            serviceStatusList.add(serviceStatus);
-        }
+        serviceStatusList.add(serviceStatus);
     }
 
     public boolean isFullCheck() {
@@ -81,7 +78,7 @@ public class HealthCheckResultsAccumulator {
         }
 
         public HealthCheckResultsModifier setServiceStatusList(List<ServiceStatusHolder> serviceStatusList) {
-            this.healthCheckResultsAccumulator.serviceStatusList = serviceStatusList;
+            this.healthCheckResultsAccumulator.serviceStatusList.addAll(serviceStatusList);
 
             return this;
         }

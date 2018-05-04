@@ -12,10 +12,12 @@ import com.epam.health.tool.facade.service.log.IServiceLogSearchFacade;
 import com.epam.health.tool.facade.service.status.IServiceStatusReceiver;
 import com.epam.health.tool.model.ClusterEntity;
 import com.epam.health.tool.model.ClusterServiceEntity;
+import com.epam.health.tool.model.ServiceTypeEnum;
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public abstract class CommonOtherServicesHealthCheckAction extends CommonRestHealthCheckAction<List<ServiceStatusHolder>> {
     private final static Logger logger = Logger.getLogger( CommonOtherServicesHealthCheckAction.class );
@@ -48,36 +50,30 @@ public abstract class CommonOtherServicesHealthCheckAction extends CommonRestHea
     }
 
     private List<ServiceStatusHolder> getServiceStatuses(HealthCheckResultsAccumulator healthCheckResultsAccumulator, ClusterEntity clusterEntity) throws InvalidResponseException {
-        List<ServiceStatusHolder> serviceStatusList = performHealthCheck(clusterEntity);
+        List<ServiceStatusHolder> serviceStatusList = performHealthCheck(clusterEntity).stream().filter(serviceStatusHolder ->
+                !areExcludedFromOtherServices(serviceStatusHolder)).collect(Collectors.toList());
         return addLogsPathToService(healthCheckResultsAccumulator, serviceStatusList, clusterEntity);
     }
 
     private List<ServiceStatusHolder> addLogsPathToService(HealthCheckResultsAccumulator healthCheckResultsAccumulator, List<ServiceStatusHolder> serviceStatuses,
                                                            ClusterEntity clusterEntity) {
-        serviceStatuses.forEach(serviceStatus -> addLogsPathToService(healthCheckResultsAccumulator, serviceStatus, clusterEntity));
+        serviceStatuses.forEach(serviceStatus -> {
+            String clusterType = clusterEntity.getClusterTypeEnum().name();
+            try {
+                serviceLogSearchManagerImplResolver.resolveFacadeImpl(clusterType).
+                        addLogsPathToService(healthCheckResultsAccumulator, serviceStatus, clusterEntity);
+            } catch (ImplementationNotResolvedException e) {
+                logger.error("can't find implementation for " + clusterType + " for log service", e);
+                throw new RuntimeException(e);
+            }
+        });
 
         return serviceStatuses;
     }
 
-    private void addLogsPathToService(HealthCheckResultsAccumulator healthCheckResultsAccumulator, ServiceStatusHolder serviceStatus, ClusterEntity clusterEntity) {
-        try {
-            ClusterServiceEntity byClusterIdAndServiceType = clusterServiceDao.findByClusterIdAndServiceType(clusterEntity.getId(), serviceStatus.getType());
-            String logPath = null;
-            if (byClusterIdAndServiceType == null) {
-                logger.error("Can't find cluster service entity for cluster: " + clusterEntity.getClusterName() + " service: " + serviceStatus.getType());
-            } else {
-                logPath = byClusterIdAndServiceType.getLogPath();
-            }
-            if (healthCheckResultsAccumulator.isFullCheck()) {
-                LogLocation logLocation = serviceLogSearchManagerImplResolver.resolveFacadeImpl(clusterEntity.getClusterTypeEnum().name())
-                        .searchLogs(clusterEntity.getClusterName(), serviceStatus.getType());
-                String logDirectory = logLocation.getLogPath();
-                logger.info("Logs for service " + serviceStatus.getDisplayName() + logDirectory);
-                serviceStatus.setLogDirectory(logDirectory);
-                serviceStatus.setClusterNode(logLocation.getClusterNode());
-            }
-        } catch (ImplementationNotResolvedException e) {
-            logger.error(e.getMessage());
-        }
+    private boolean areExcludedFromOtherServices(ServiceStatusHolder serviceStatusHolder) {
+        return serviceStatusHolder.getType().equals(ServiceTypeEnum.HDFS) && serviceStatusHolder.getType().equals(ServiceTypeEnum.YARN);
     }
+
+
 }

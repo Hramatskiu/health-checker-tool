@@ -1,6 +1,7 @@
 package com.epam.health.tool.facade.common.service.action.yarn;
 
 import com.epam.facade.model.HealthCheckActionType;
+import com.epam.facade.model.ServiceStatus;
 import com.epam.facade.model.accumulator.HealthCheckResultsAccumulator;
 import com.epam.facade.model.accumulator.results.impl.JobResultImpl;
 import com.epam.facade.model.cluster.receiver.InvalidBuildParamsException;
@@ -12,10 +13,12 @@ import com.epam.health.tool.facade.common.service.action.CommonActionNames;
 import com.epam.health.tool.facade.common.service.action.CommonSshHealthCheckAction;
 import com.epam.facade.model.exception.ImplementationNotResolvedException;
 import com.epam.facade.model.exception.InvalidResponseException;
+import com.epam.health.tool.facade.common.service.action.other.CommonOtherServicesHealthCheckAction;
 import com.epam.health.tool.facade.common.service.action.yarn.searcher.JarSearchingManager;
 import com.epam.health.tool.facade.context.IApplicationContext;
 import com.epam.health.tool.facade.resolver.IFacadeImplResolver;
 import com.epam.health.tool.facade.resolver.action.HealthCheckAction;
+import com.epam.health.tool.facade.service.log.IServiceLogSearchFacade;
 import com.epam.health.tool.facade.service.status.IServiceStatusReceiver;
 import com.epam.health.tool.model.ClusterEntity;
 import com.epam.health.tool.model.ServiceStatusEnum;
@@ -23,6 +26,7 @@ import com.epam.health.tool.model.ServiceTypeEnum;
 import com.epam.util.common.CheckingParamsUtil;
 import com.epam.util.common.StringUtils;
 import com.epam.util.ssh.delegating.SshExecResult;
+import org.apache.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -44,26 +48,40 @@ public class CommonYarnServiceHealthCheckActionImpl extends CommonSshHealthCheck
     private IApplicationContext applicationContext;
     @Autowired
     private JarSearchingManager jarSearchingManager;
+    @Autowired
+    private IFacadeImplResolver<IServiceLogSearchFacade> serviceLogSearchManagerImplResolver;
+    private final static Logger logger = Logger.getLogger( CommonYarnServiceHealthCheckActionImpl.class );
 
     @Override
     public void performHealthCheck(String clusterName, HealthCheckResultsAccumulator healthCheckResultsAccumulator) throws InvalidResponseException {
 
         ClusterEntity clusterEntity = clusterDao.findByClusterName(clusterName);
         try {
-            ServiceStatusHolder serviceStatus = getServiceStatus(clusterEntity, healthCheckResultsAccumulator);
+            ServiceStatusHolder serviceStatus = getServiceStatus(clusterEntity);
             serviceStatus.setJobResults(Collections.singletonList(runExamplesJob(clusterEntity, "pi", "5", "10")));
             serviceStatus.setHealthSummary(mergeJobResultsWithRestStatus(serviceStatus.getHealthSummary(), getYarnServiceStatus(serviceStatus)));
+            addLogDirectory(clusterEntity, healthCheckResultsAccumulator, serviceStatus);
             healthCheckResultsAccumulator.addServiceStatus(serviceStatus);
         } catch (ImplementationNotResolvedException e) {
             throw new InvalidResponseException("Can't find according implementation for vendor " + clusterEntity.getClusterTypeEnum(), e);
         }
     }
 
-    private ServiceStatusHolder getServiceStatus(ClusterEntity clusterEntity, HealthCheckResultsAccumulator healthCheckResultsAccumulator)
+    private void addLogDirectory(ClusterEntity clusterEntity, HealthCheckResultsAccumulator healthCheckResultsAccumulator, ServiceStatusHolder serviceStatus) {
+        String clusterType = clusterEntity.getClusterTypeEnum().name();
+        try {
+            serviceLogSearchManagerImplResolver.resolveFacadeImpl(clusterType).
+                    addLogsPathToService(healthCheckResultsAccumulator, serviceStatus, clusterEntity);
+        } catch (ImplementationNotResolvedException e) {
+            logger.error("can't find implementation for " + clusterType + " for log service", e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    private ServiceStatusHolder getServiceStatus(ClusterEntity clusterEntity)
             throws InvalidResponseException, ImplementationNotResolvedException {
-        Optional<ServiceStatusHolder> serviceHealthCheckResultIfExists = healthCheckResultsAccumulator.getServiceHealthCheckResultIfExists(ServiceTypeEnum.YARN);
-        return serviceHealthCheckResultIfExists.orElse(serviceStatusReceiverIFacadeImplResolver
-                .resolveFacadeImpl(clusterEntity.getClusterTypeEnum()).getServiceStatus(clusterEntity, ServiceTypeEnum.YARN));
+        return serviceStatusReceiverIFacadeImplResolver
+                .resolveFacadeImpl(clusterEntity.getClusterTypeEnum()).getServiceStatus(clusterEntity, ServiceTypeEnum.YARN);
     }
 
     private JobResultProjection runExamplesJob(ClusterEntity clusterEntity, String jobName, String... jobParams) throws InvalidResponseException {
